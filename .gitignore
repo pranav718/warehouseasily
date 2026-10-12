@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing & Coverage
+coverage/
+
+# Next.js build
+.next/
+out/
+build/
+dist/
+
+# Production
+.vercel
+
+# Debug & Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment variables
+.env
+.env*.local
+!.env.example
+
+# macOS
+.DS_Store
+*.swp
+*.swo
+
+# IDE & Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# C++ / Native Build Artifacts
+bin/
+obj/
+*.o
+*.a
+*.so
+*.dylib
+*.out
+*.exe
+build/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+
+# Go Artifacts
+*.exe~
+*.dll
+*.so
+*.dylib
+vendor/
+
+# Python (if benchmark / helper scripts are used)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
