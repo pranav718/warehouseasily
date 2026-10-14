@@ -1,148 +1,475 @@
-export default function HomePage() {
+"use client";
+
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  Point,
+  GridDimensions,
+  AlgorithmType,
+  HeuristicType,
+  SearchStep,
+  SearchResult,
+} from "../lib/types";
+import { WarehouseGrid } from "../components/WarehouseGrid";
+import { PlaybackControls } from "../components/PlaybackControls";
+import { getPreset, WAREHOUSE_PRESETS } from "../lib/presets";
+import { findPathAStarGenerator } from "../lib/algorithms/astar";
+import { findPathGreedyGenerator } from "../lib/algorithms/greedy";
+import { findPathBFSGenerator } from "../lib/algorithms/bfs";
+import { optimizePickOrder } from "../lib/algorithms/simulatedAnnealing";
+import { manhattanDistance } from "../lib/heuristics";
+
+export default function DashboardPage() {
+  const initialPreset = getPreset("kiva");
+  const [selectedPreset, setSelectedPreset] = useState<string>("kiva");
+  const [dimensions] = useState<GridDimensions>(initialPreset.dimensions);
+
+  const [shelves, setShelves] = useState<Set<string>>(() => {
+    return new Set(initialPreset.shelves.map((p) => `${p.x},${p.y}`));
+  });
+  const [start, setStart] = useState<Point>(initialPreset.start);
+  const [pickups, setPickups] = useState<Point[]>(initialPreset.pickups);
+  const [dropoff, setDropoff] = useState<Point>(initialPreset.dropoff);
+
+  const [algorithm, setAlgorithm] = useState<AlgorithmType>("astar");
+  const [heuristic, setHeuristic] = useState<HeuristicType>("manhattan");
+  const [useAnnealing, setUseAnnealing] = useState<boolean>(true);
+  const [editMode, setEditMode] = useState<"shelf" | "start" | "pickup" | "dropoff" | "erase">("shelf");
+
+  const [openSet, setOpenSet] = useState<Point[]>([]);
+  const [closedSet, setClosedSet] = useState<Point[]>([]);
+  const [currentPoint, setCurrentPoint] = useState<Point | null>(null);
+  const [path, setPath] = useState<Point[]>([]);
+  const [robotPosition, setRobotPosition] = useState<Point | null>(null);
+
+  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [speed, setSpeed] = useState<number>(5);
+  const [statusMessage, setStatusMessage] = useState<string>("Ready");
+
+  const [metrics, setMetrics] = useState({
+    nodesExpanded: 0,
+    pathLength: 0,
+    executionTimeMs: 0,
+    initialEnergy: 0,
+    finalEnergy: 0,
+    annealingSavings: 0,
+  });
+
+  const isMouseDownRef = useRef<boolean>(false);
+  const executionRef = useRef<{ cancelled: boolean; paused: boolean }>({
+    cancelled: false,
+    paused: false,
+  });
+
+  useEffect(() => {
+    const handleMouseUp = () => {
+      isMouseDownRef.current = false;
+    };
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => window.removeEventListener("mouseup", handleMouseUp);
+  }, []);
+
+  const resetSimulationState = useCallback(() => {
+    executionRef.current.cancelled = true;
+    setIsRunning(false);
+    setIsPaused(false);
+    setOpenSet([]);
+    setClosedSet([]);
+    setCurrentPoint(null);
+    setPath([]);
+    setRobotPosition(null);
+    setStatusMessage("Ready");
+  }, []);
+
+  const loadPreset = (presetId: string) => {
+    resetSimulationState();
+    setSelectedPreset(presetId);
+    const p = getPreset(presetId);
+    setShelves(new Set(p.shelves.map((pt) => `${pt.x},${pt.y}`)));
+    setStart(p.start);
+    setPickups(p.pickups);
+    setDropoff(p.dropoff);
+  };
+
+  const handleCellAction = (x: number, y: number) => {
+    if (isRunning) return;
+    const key = `${x},${y}`;
+
+    if (editMode === "shelf") {
+      if (
+        (start.x === x && start.y === y) ||
+        (dropoff.x === x && dropoff.y === y) ||
+        pickups.some((p) => p.x === x && p.y === y)
+      ) {
+        return;
+      }
+      setShelves((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    } else if (editMode === "erase") {
+      setShelves((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      setPickups((prev) => prev.filter((p) => p.x !== x || p.y !== y));
+    } else if (editMode === "start") {
+      if (!shelves.has(key)) {
+        setStart({ x, y });
+      }
+    } else if (editMode === "dropoff") {
+      if (!shelves.has(key)) {
+        setDropoff({ x, y });
+      }
+    } else if (editMode === "pickup") {
+      if (!shelves.has(key) && !pickups.some((p) => p.x === x && p.y === y)) {
+        setPickups((prev) => [...prev, { x, y }]);
+      }
+    }
+  };
+
+  const handleCellMouseDown = (x: number, y: number) => {
+    isMouseDownRef.current = true;
+    handleCellAction(x, y);
+  };
+
+  const handleCellMouseEnter = (x: number, y: number) => {
+    if (!isMouseDownRef.current) return;
+    if (editMode === "shelf" || editMode === "erase") {
+      handleCellAction(x, y);
+    }
+  };
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const runSimulation = async () => {
+    resetSimulationState();
+    await sleep(50);
+
+    executionRef.current = { cancelled: false, paused: false };
+    setIsRunning(true);
+    setIsPaused(false);
+    setStatusMessage("Optimizing pick sequence...");
+
+    let orderedStops: Point[] = [start, ...pickups, dropoff];
+    let initE = 0;
+    let optE = 0;
+
+    if (useAnnealing && pickups.length > 1) {
+      const saResult = optimizePickOrder(start, pickups, dropoff, manhattanDistance);
+      initE = saResult.initialEnergy;
+      optE = saResult.finalEnergy;
+      orderedStops = [start, ...saResult.optimizedOrder, dropoff];
+      setMetrics((prev) => ({
+        ...prev,
+        initialEnergy: initE,
+        finalEnergy: optE,
+        annealingSavings: Math.max(0, initE - optE),
+      }));
+    }
+
+    const completeCalculatedPath: Point[] = [];
+    let totalExpanded = 0;
+    const simStartTime = performance.now();
+
+    for (let legIdx = 0; legIdx < orderedStops.length - 1; legIdx++) {
+      if (executionRef.current.cancelled) return;
+
+      const legStart = orderedStops[legIdx];
+      const legGoal = orderedStops[legIdx + 1];
+
+      setStatusMessage(
+        `Pathfinding leg ${legIdx + 1} of ${orderedStops.length - 1} (${algorithm.toUpperCase()})...`
+      );
+
+      let generator: Generator<SearchStep, SearchResult, unknown>;
+      if (algorithm === "astar") {
+        generator = findPathAStarGenerator(
+          legStart,
+          legGoal,
+          dimensions,
+          shelves,
+          heuristic
+        );
+      } else if (algorithm === "greedy") {
+        generator = findPathGreedyGenerator(
+          legStart,
+          legGoal,
+          dimensions,
+          shelves,
+          heuristic
+        );
+      } else {
+        generator = findPathBFSGenerator(legStart, legGoal, dimensions, shelves);
+      }
+
+      let stepResult = generator.next();
+      while (!stepResult.done) {
+        if (executionRef.current.cancelled) return;
+        while (executionRef.current.paused) {
+          if (executionRef.current.cancelled) return;
+          await sleep(100);
+        }
+
+        const step = stepResult.value;
+        setCurrentPoint(step.current);
+        setOpenSet(step.openSet);
+        setClosedSet(step.closedSet);
+        totalExpanded++;
+
+        const delay = Math.max(2, Math.floor(60 / speed));
+        await sleep(delay);
+
+        stepResult = generator.next();
+      }
+
+      const legResult = stepResult.value;
+      if (!legResult.success) {
+        setStatusMessage("Target unreachable: Path obstructed by shelves");
+        setIsRunning(false);
+        return;
+      }
+
+      if (completeCalculatedPath.length === 0) {
+        completeCalculatedPath.push(...legResult.path);
+      } else {
+        completeCalculatedPath.push(...legResult.path.slice(1));
+      }
+
+      setPath([...completeCalculatedPath]);
+      setMetrics((prev) => ({
+        ...prev,
+        nodesExpanded: totalExpanded,
+        pathLength: completeCalculatedPath.length,
+        executionTimeMs: Math.round(performance.now() - simStartTime),
+      }));
+    }
+
+    setCurrentPoint(null);
+    setOpenSet([]);
+    setClosedSet([]);
+    setStatusMessage("Navigating AGV robot along planned route...");
+
+    for (let stepIdx = 0; stepIdx < completeCalculatedPath.length; stepIdx++) {
+      if (executionRef.current.cancelled) return;
+      while (executionRef.current.paused) {
+        if (executionRef.current.cancelled) return;
+        await sleep(100);
+      }
+
+      setRobotPosition(completeCalculatedPath[stepIdx]);
+      const navDelay = Math.max(15, Math.floor(200 / speed));
+      await sleep(navDelay);
+    }
+
+    setStatusMessage("Mission complete: Order delivered to loading dock");
+    setIsRunning(false);
+  };
+
+  const handlePause = () => {
+    executionRef.current.paused = true;
+    setIsPaused(true);
+  };
+
+  const handleResume = () => {
+    executionRef.current.paused = false;
+    setIsPaused(false);
+  };
+
+  const handleStep = () => {
+    if (isPaused) {
+      executionRef.current.paused = false;
+      setTimeout(() => {
+        executionRef.current.paused = true;
+      }, 50);
+    } else if (!isRunning) {
+      runSimulation();
+    }
+  };
+
+  const clearShelves = () => {
+    if (isRunning) return;
+    setShelves(new Set());
+    resetSimulationState();
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100 font-sans">
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur px-6 py-4 flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold tracking-tight text-white">warehouseasily</h1>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-950 border border-cyan-800 text-cyan-300 font-mono">
-              AISC Course Project
+              AISC University Course Project
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Autonomous Warehouse Fleet Navigation and Pick-Order Optimization
+            Autonomous Warehouse Fleet Navigation and Pick-Order Optimization System
           </p>
         </div>
+
         <div className="flex items-center gap-3 text-xs font-mono">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800/80 border border-slate-700/80 text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            Micro: A* Search
-          </div>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800/80 border border-slate-700/80 text-amber-400">
-            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-            Macro: Simulated Annealing
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 border border-slate-800">
+            <span className="text-slate-500">Status:</span>
+            <span className="text-cyan-400 font-semibold">{statusMessage}</span>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <section className="lg:col-span-3 flex flex-col gap-6">
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5 flex flex-col min-h-[520px]">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+      <main className="flex-1 p-6 grid grid-cols-1 xl:grid-cols-4 gap-6">
+        <section className="xl:col-span-3 flex flex-col gap-6">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-3 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
               <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300">
-                  Warehouse Floor Simulation
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono">
+                  Warehouse Floor Viewport
                 </h2>
-                <p className="text-xs text-slate-500">Interactive 2D Grid with Static Shelves and Dynamic Routing</p>
+                <p className="text-xs text-slate-400">
+                  {WAREHOUSE_PRESETS[selectedPreset]?.description || "Configurable Warehouse Simulation"}
+                </p>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono text-slate-400 bg-slate-800 px-2 py-1 rounded border border-slate-700">
-                  Grid: 24 x 16
+                <span className="text-xs font-mono px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
+                  {dimensions.cols} x {dimensions.rows}
                 </span>
-                <span className="text-xs font-mono text-slate-400 bg-slate-800 px-2 py-1 rounded border border-slate-700">
-                  Status: Ready
+                <span className="text-xs font-mono px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
+                  Pickups: {pickups.length}
+                </span>
+                <span className="text-xs font-mono px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
+                  Shelves: {shelves.size}
                 </span>
               </div>
             </div>
 
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border border-dashed border-slate-800 rounded-lg mt-4 bg-slate-950/40">
-              <div className="w-12 h-12 rounded-lg bg-slate-800/60 border border-slate-700 flex items-center justify-center text-slate-400 font-mono text-lg font-bold mb-3">
-                2D
-              </div>
-              <h3 className="text-base font-medium text-slate-200">Grid Canvas Ready for Phase 2</h3>
-              <p className="text-xs text-slate-400 max-w-md mt-1">
-                Phase 1 scaffold complete. Next phase implements the grid model, distance heuristics (Manhattan and Euclidean), and A* search expansion.
-              </p>
-            </div>
+            <WarehouseGrid
+              dimensions={dimensions}
+              shelves={shelves}
+              start={start}
+              pickups={pickups}
+              dropoff={dropoff}
+              openSet={openSet}
+              closedSet={closedSet}
+              currentPoint={currentPoint}
+              path={path}
+              robotPosition={robotPosition}
+              editMode={editMode}
+              onCellClick={handleCellAction}
+              onCellMouseDown={handleCellMouseDown}
+              onCellMouseEnter={handleCellMouseEnter}
+            />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-slate-900/50 border border-slate-800/80 rounded-lg p-4">
-              <span className="text-xs uppercase tracking-wider text-slate-400 font-mono">Algorithm Mode</span>
-              <div className="text-lg font-bold text-slate-100 mt-1">A* Pathfinding</div>
-              <div className="text-xs text-slate-500 mt-1">f(n) = g(n) + h(n) with Manhattan heuristic</div>
-            </div>
-
-            <div className="bg-slate-900/50 border border-slate-800/80 rounded-lg p-4">
-              <span className="text-xs uppercase tracking-wider text-slate-400 font-mono">Order Optimization</span>
-              <div className="text-lg font-bold text-slate-100 mt-1">Simulated Annealing</div>
-              <div className="text-xs text-slate-500 mt-1">Meta-heuristic TSP pick sequence solver</div>
-            </div>
-
-            <div className="bg-slate-900/50 border border-slate-800/80 rounded-lg p-4">
-              <span className="text-xs uppercase tracking-wider text-slate-400 font-mono">Comparison Target</span>
-              <div className="text-lg font-bold text-slate-100 mt-1">Greedy BFS vs BFS</div>
-              <div className="text-xs text-slate-500 mt-1">Benchmarking node expansion and latency</div>
-            </div>
-          </div>
+          <PlaybackControls
+            isRunning={isRunning}
+            isPaused={isPaused}
+            speed={speed}
+            algorithm={algorithm}
+            heuristic={heuristic}
+            useAnnealing={useAnnealing}
+            editMode={editMode}
+            selectedPreset={selectedPreset}
+            onPlay={isPaused ? handleResume : runSimulation}
+            onPause={handlePause}
+            onStep={handleStep}
+            onReset={resetSimulationState}
+            onClearShelves={clearShelves}
+            onSpeedChange={setSpeed}
+            onAlgorithmChange={setAlgorithm}
+            onHeuristicChange={setHeuristic}
+            onUseAnnealingChange={setUseAnnealing}
+            onEditModeChange={setEditMode}
+            onPresetChange={loadPreset}
+          />
         </section>
 
-        <aside className="lg:col-span-1 flex flex-col gap-6">
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5 flex flex-col gap-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300 border-b border-slate-800 pb-2">
-              Dispatch Controls
+        <aside className="xl:col-span-1 flex flex-col gap-6">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono border-b border-slate-800 pb-2">
+              Execution Telemetry
             </h2>
 
-            <div className="flex flex-col gap-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Search Heuristic</label>
-                <select className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-600">
-                  <option value="manhattan">Manhattan Distance (L1)</option>
-                  <option value="euclidean">Euclidean Distance (L2)</option>
-                  <option value="chebyshev">Chebyshev Distance (L-inf)</option>
-                </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-950/70 border border-slate-800 rounded p-3">
+                <span className="text-[10px] font-mono uppercase text-slate-500 block">Nodes Expanded</span>
+                <span className="text-xl font-bold font-mono text-cyan-400 mt-1 block">
+                  {metrics.nodesExpanded}
+                </span>
               </div>
 
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Comparison Algorithm</label>
-                <select className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-600">
-                  <option value="astar">A* Search (Optimal)</option>
-                  <option value="greedy">Greedy Best-First Search</option>
-                  <option value="bfs">Breadth-First Search (Uninformed)</option>
-                </select>
+              <div className="bg-slate-950/70 border border-slate-800 rounded p-3">
+                <span className="text-[10px] font-mono uppercase text-slate-500 block">Path Distance</span>
+                <span className="text-xl font-bold font-mono text-emerald-400 mt-1 block">
+                  {metrics.pathLength}
+                </span>
               </div>
 
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Warehouse Preset</label>
-                <select className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-600">
-                  <option value="kiva">Amazon Kiva Standard Pods</option>
-                  <option value="dense">Dense Storage Aisles</option>
-                  <option value="maze">U-Shaped Obstacle Trap</option>
-                </select>
+              <div className="bg-slate-950/70 border border-slate-800 rounded p-3">
+                <span className="text-[10px] font-mono uppercase text-slate-500 block">Search Time</span>
+                <span className="text-xl font-bold font-mono text-purple-400 mt-1 block">
+                  {metrics.executionTimeMs} ms
+                </span>
               </div>
-            </div>
 
-            <div className="pt-2 border-t border-slate-800 flex flex-col gap-2">
-              <button
-                disabled
-                className="w-full py-2 px-3 rounded-md bg-cyan-700/40 text-cyan-300/60 border border-cyan-800/40 text-xs font-medium cursor-not-allowed"
-              >
-                Execute Optimization (Phase 2)
-              </button>
+              <div className="bg-slate-950/70 border border-slate-800 rounded p-3">
+                <span className="text-[10px] font-mono uppercase text-slate-500 block">Anneal Savings</span>
+                <span className="text-xl font-bold font-mono text-amber-400 mt-1 block">
+                  {metrics.annealingSavings} cells
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5 flex flex-col gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300 border-b border-slate-800 pb-2">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono border-b border-slate-800 pb-2">
+              Algorithmic Comparison
+            </h2>
+
+            <div className="space-y-3 text-xs text-slate-300">
+              <div className="p-2.5 rounded bg-slate-950/60 border border-slate-800">
+                <div className="font-semibold text-cyan-400 font-mono">A* Search (Informed)</div>
+                <div className="text-slate-400 mt-1 text-[11px]">
+                  f(n) = g(n) + h(n). Guaranteed optimal path with admissible heuristic. Expands only nodes directed toward goal.
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded bg-slate-950/60 border border-slate-800">
+                <div className="font-semibold text-amber-400 font-mono">Greedy Best-First</div>
+                <div className="text-slate-400 mt-1 text-[11px]">
+                  f(n) = h(n). Ignores path cost g(n). Fast in open space, but susceptible to traps and suboptimal detours.
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded bg-slate-950/60 border border-slate-800">
+                <div className="font-semibold text-purple-400 font-mono">Breadth-First (BFS)</div>
+                <div className="text-slate-400 mt-1 text-[11px]">
+                  Uninformed search. Expands all directions equally. Guarantees shortest path on unweighted grid, but high memory usage.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-3 text-xs text-slate-400">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono border-b border-slate-800 pb-2">
               Course Details
             </h2>
-            <div className="text-xs text-slate-400 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Course:</span>
-                <span className="font-mono text-slate-300">AISC (Univ)</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Phase 2:</span>
-                <span className="text-slate-300">A* Pathfinding</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Phase 3:</span>
-                <span className="text-slate-300">Simulated Annealing</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Phase 6:</span>
-                <span className="text-slate-300">C++17 Reference Engine</span>
-              </div>
+            <div className="flex justify-between py-1 border-b border-slate-800/50">
+              <span>Course</span>
+              <span className="font-mono text-slate-200">AISC (Lectures 1-28)</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-800/50">
+              <span>Domain</span>
+              <span className="text-slate-200">Automated Guided Vehicles</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-800/50">
+              <span>Phase 1-3</span>
+              <span className="text-emerald-400">Algorithms & Coordinator</span>
+            </div>
+            <div className="flex justify-between py-1">
+              <span>Phase 4</span>
+              <span className="text-emerald-400">Interactive Visualizer</span>
             </div>
           </div>
         </aside>
