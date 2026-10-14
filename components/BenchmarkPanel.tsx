@@ -120,7 +120,7 @@ export function BenchmarkPanel({
           )}
 
           <div className="text-[11px] font-mono text-slate-400 bg-slate-950/40 p-3 rounded border border-slate-800/80">
-            <span className="text-cyan-400 font-bold">Academic Evaluation Note: </span>
+            <span className="text-cyan-400 font-bold">Algorithm Analysis: </span>
             A* Search with Manhattan heuristic maintains strict admissibility and expands substantially fewer nodes than uninformed BFS while guaranteeing shortest path optimality. Greedy Best-First minimizes latency in open space but suffers significant path degradation in obstacle dense configurations.
           </div>
         </div>
