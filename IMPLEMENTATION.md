@@ -34,34 +34,37 @@ Impact on project:
 ---
 
 ### Phase 2: Micro-Level Pathfinding Engine
-Status: Pending
+Status: Completed
 
-Planned items:
-- Warehouse grid data types: Cell, Obstacle, Shelf, Pickup, Dropoff, Robot.
-- Admissible distance heuristics: Manhattan (L1), Euclidean (L2), Chebyshev.
-- A* Search implementation using priority queue and step-by-step generator.
-- Greedy Best-First Search implementation.
-- Breadth-First Search implementation as uninformed baseline.
+Completed items:
+- Warehouse grid data types in lib/types.ts: Point, GridCell, SearchNode, SearchStep, SearchResult.
+- Binary min-heap priority queue in lib/priorityQueue.ts for efficient OPEN set operations.
+- Admissible distance heuristics in lib/heuristics.ts: Manhattan (L1), Euclidean (L2), Chebyshev.
+- Optimal A* Search in lib/algorithms/astar.ts with tie-breaking and step-by-step generator.
+- Greedy Best-First Search in lib/algorithms/greedy.ts with step generator for comparison.
+- Uninformed Breadth-First Search in lib/algorithms/bfs.ts with step generator as benchmark baseline.
 
 Impact on project:
-- Powers point-to-point collision-free robot navigation around warehouse shelves.
-- Provides step data for animating the search frontier in the UI.
+- Delivers the core search algorithms required for the AISC syllabus (Lectures 1 to 28).
+- Provides step generators so the UI canvas can animate the search frontier expansion.
 
 ---
 
 ### Phase 3: Macro-Level Pick-Order Sequencing
-Status: Pending
+Status: Completed
 
-Planned items:
-- TSP state representation for multi-item orders.
-- Simulated Annealing engine with temperature cooling schedule (T0, alpha).
-- 2-opt tour mutation operator (swap and reverse).
-- Metropolis acceptance criterion: P(accept) = exp(-deltaE / T).
-- Integration between macro order sequencing and micro A* path planner.
+Completed items:
+- Multi-stop order and Simulated Annealing data structures in lib/types.ts.
+- Simulated Annealing engine in lib/algorithms/simulatedAnnealing.ts with geometric cooling schedule (T0 = 1000, alpha = 0.995).
+- 2-opt segment reversal and random pairwise swap mutation operators.
+- Metropolis acceptance probability function: P(deltaE, T) = exp(-deltaE / T).
+- Generator function optimizePickOrderGenerator yielding step data for UI convergence plotting.
+- Warehouse fleet dispatch coordinator in lib/coordinator.ts connecting macro TSP tour with micro A* path stitching.
 
 Impact on project:
-- Minimizes total travel distance for complex multi-stop orders.
-- Prevents robots from taking naive sequential routes.
+- Solves the NP-hard multi-item pick sequencing challenge (macro level).
+- Prevents fleet robots from executing wasteful zigzag routes across warehouse aisles.
+- Provides seamless data pipeline from user order to continuous grid trajectory.
 
 ---
 
@@ -116,3 +119,5 @@ Impact on project:
 
 - 2026-10-13: Initialized repository, git tracking, and project spec.
 - 2026-10-13: Completed Phase 1 scaffolding, layout shell, dark theme, and implementation tracker.
+- 2026-10-13: Completed Phase 2 search engine (A*, Greedy BFS, uninformed BFS, distance heuristics, priority queue).
+- 2026-10-14: Completed Phase 3 order sequencing engine (Simulated Annealing, 2-opt, Metropolis criterion, fleet dispatch coordinator).
