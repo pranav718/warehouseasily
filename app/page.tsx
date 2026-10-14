@@ -340,8 +340,8 @@ export default function DashboardPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold tracking-tight text-white">warehouseasily</h1>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-950 border border-cyan-800 text-cyan-300 font-mono">
-              AISC University Course Project
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300 font-mono">
+              Fleet Navigator
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -470,7 +470,60 @@ export default function DashboardPage() {
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono border-b border-slate-800 pb-2">
-              Algorithmic Comparison
+              Active Algorithm
+            </h2>
+
+            <div className="flex flex-col gap-3 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 font-mono">Algorithm:</span>
+                <span className="font-bold text-cyan-400 uppercase font-mono">
+                  {algorithm === "astar"
+                    ? "A* Search"
+                    : algorithm === "greedy"
+                    ? "Greedy Best-First"
+                    : "Breadth-First (BFS)"}
+                </span>
+              </div>
+
+              <div className="p-3 rounded bg-slate-950/80 border border-slate-800 flex flex-col gap-1.5 font-mono">
+                <div className="text-[10px] text-slate-500 uppercase">Evaluation Function</div>
+                <div className="text-sm font-bold text-emerald-400">
+                  {algorithm === "astar"
+                    ? "f(n) = g(n) + h(n)"
+                    : algorithm === "greedy"
+                    ? "f(n) = h(n)"
+                    : "f(n) = depth(n)"}
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  {algorithm === "astar"
+                    ? "Combines path cost g(n) with admissible heuristic h(n). Guaranteed optimal shortest path."
+                    : algorithm === "greedy"
+                    ? "Expands nodes closest to goal ignoring path cost. Fast in open space but prone to obstacle traps."
+                    : "Uninformed uniform expansion. Guaranteed shortest path on unweighted grid with high memory usage."}
+                </div>
+              </div>
+
+              {algorithm !== "bfs" && (
+                <div className="flex items-center justify-between py-1 border-t border-slate-800/80 text-slate-400">
+                  <span className="font-mono">Heuristic:</span>
+                  <span className="font-mono text-slate-200 capitalize">
+                    {heuristic} Distance
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between py-1 border-t border-slate-800/80 text-slate-400">
+                <span className="font-mono">Macro Sequencing:</span>
+                <span className="font-mono text-amber-400">
+                  {useAnnealing ? "Simulated Annealing" : "Naive Sequential"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono border-b border-slate-800 pb-2">
+              Algorithm Comparison
             </h2>
 
             <div className="space-y-3 text-xs text-slate-300">
@@ -494,32 +547,6 @@ export default function DashboardPage() {
                   Uninformed search. Expands all directions equally. Guarantees shortest path on unweighted grid, but high memory usage.
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-3 text-xs text-slate-400">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono border-b border-slate-800 pb-2">
-              Course Details
-            </h2>
-            <div className="flex justify-between py-1 border-b border-slate-800/50">
-              <span>Course</span>
-              <span className="font-mono text-slate-200">AISC (Lectures 1-28)</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-slate-800/50">
-              <span>Domain</span>
-              <span className="text-slate-200">Automated Guided Vehicles</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-slate-800/50">
-              <span>Phase 1-3</span>
-              <span className="text-emerald-400">Algorithms & Coordinator</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-slate-800/50">
-              <span>Phase 4</span>
-              <span className="text-emerald-400">Interactive Visualizer</span>
-            </div>
-            <div className="flex justify-between py-1">
-              <span>Phase 5</span>
-              <span className="text-emerald-400">Benchmark Matrix</span>
             </div>
           </div>
         </aside>
