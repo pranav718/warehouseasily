@@ -11,12 +11,14 @@ import {
 } from "../lib/types";
 import { WarehouseGrid } from "../components/WarehouseGrid";
 import { PlaybackControls } from "../components/PlaybackControls";
+import { BenchmarkPanel } from "../components/BenchmarkPanel";
 import { getPreset, WAREHOUSE_PRESETS } from "../lib/presets";
 import { findPathAStarGenerator } from "../lib/algorithms/astar";
 import { findPathGreedyGenerator } from "../lib/algorithms/greedy";
 import { findPathBFSGenerator } from "../lib/algorithms/bfs";
 import { optimizePickOrder } from "../lib/algorithms/simulatedAnnealing";
 import { manhattanDistance } from "../lib/heuristics";
+import { runComprehensiveBenchmark, FullBenchmarkReport } from "../lib/benchmark";
 
 export default function DashboardPage() {
   const initialPreset = getPreset("kiva");
@@ -46,6 +48,9 @@ export default function DashboardPage() {
   const [speed, setSpeed] = useState<number>(5);
   const [statusMessage, setStatusMessage] = useState<string>("Ready");
 
+  const [benchmarkReport, setBenchmarkReport] = useState<FullBenchmarkReport | null>(null);
+  const [isBenchmarking, setIsBenchmarking] = useState<boolean>(false);
+
   const [metrics, setMetrics] = useState({
     nodesExpanded: 0,
     pathLength: 0,
@@ -60,6 +65,36 @@ export default function DashboardPage() {
     cancelled: false,
     paused: false,
   });
+
+  const triggerBenchmark = useCallback(
+    (
+      currentStart: Point,
+      currentGoal: Point,
+      currentPickups: Point[],
+      currentDropoff: Point,
+      currentDims: GridDimensions,
+      currentShelves: Set<string>
+    ) => {
+      setIsBenchmarking(true);
+      setTimeout(() => {
+        const report = runComprehensiveBenchmark(
+          currentStart,
+          currentGoal,
+          currentPickups,
+          currentDropoff,
+          currentDims,
+          currentShelves
+        );
+        setBenchmarkReport(report);
+        setIsBenchmarking(false);
+      }, 30);
+    },
+    []
+  );
+
+  useEffect(() => {
+    triggerBenchmark(start, dropoff, pickups, dropoff, dimensions, shelves);
+  }, []);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -85,10 +120,13 @@ export default function DashboardPage() {
     resetSimulationState();
     setSelectedPreset(presetId);
     const p = getPreset(presetId);
-    setShelves(new Set(p.shelves.map((pt) => `${pt.x},${pt.y}`)));
+    const nextShelves = new Set(p.shelves.map((pt) => `${pt.x},${pt.y}`));
+    setShelves(nextShelves);
     setStart(p.start);
     setPickups(p.pickups);
     setDropoff(p.dropoff);
+
+    triggerBenchmark(p.start, p.dropoff, p.pickups, p.dropoff, dimensions, nextShelves);
   };
 
   const handleCellAction = (x: number, y: number) => {
@@ -383,6 +421,14 @@ export default function DashboardPage() {
             onEditModeChange={setEditMode}
             onPresetChange={loadPreset}
           />
+
+          <BenchmarkPanel
+            report={benchmarkReport}
+            isBenchmarking={isBenchmarking}
+            onRunBenchmark={() =>
+              triggerBenchmark(start, dropoff, pickups, dropoff, dimensions, shelves)
+            }
+          />
         </section>
 
         <aside className="xl:col-span-1 flex flex-col gap-6">
@@ -467,9 +513,13 @@ export default function DashboardPage() {
               <span>Phase 1-3</span>
               <span className="text-emerald-400">Algorithms & Coordinator</span>
             </div>
-            <div className="flex justify-between py-1">
+            <div className="flex justify-between py-1 border-b border-slate-800/50">
               <span>Phase 4</span>
               <span className="text-emerald-400">Interactive Visualizer</span>
+            </div>
+            <div className="flex justify-between py-1">
+              <span>Phase 5</span>
+              <span className="text-emerald-400">Benchmark Matrix</span>
             </div>
           </div>
         </aside>
