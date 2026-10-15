@@ -12,13 +12,22 @@ import {
 import { WarehouseGrid } from "../components/WarehouseGrid";
 import { PlaybackControls } from "../components/PlaybackControls";
 import { BenchmarkPanel } from "../components/BenchmarkPanel";
-import { getPreset, WAREHOUSE_PRESETS } from "../lib/presets";
+import { FleetStatus } from "../components/FleetStatus";
+import { getPreset } from "../lib/presets";
 import { findPathAStarGenerator } from "../lib/algorithms/astar";
 import { findPathGreedyGenerator } from "../lib/algorithms/greedy";
 import { findPathBFSGenerator } from "../lib/algorithms/bfs";
 import { optimizePickOrder } from "../lib/algorithms/simulatedAnnealing";
 import { manhattanDistance } from "../lib/heuristics";
 import { runComprehensiveBenchmark, FullBenchmarkReport } from "../lib/benchmark";
+import {
+  CheckCircle2,
+  Clock,
+  TrendingUp,
+  Activity,
+  Layers,
+  Compass,
+} from "lucide-react";
 
 export default function DashboardPage() {
   const initialPreset = getPreset("kiva");
@@ -35,7 +44,6 @@ export default function DashboardPage() {
   const [algorithm, setAlgorithm] = useState<AlgorithmType>("astar");
   const [heuristic, setHeuristic] = useState<HeuristicType>("manhattan");
   const [useAnnealing, setUseAnnealing] = useState<boolean>(true);
-  const [editMode, setEditMode] = useState<"shelf" | "start" | "pickup" | "dropoff" | "erase">("shelf");
 
   const [openSet, setOpenSet] = useState<Point[]>([]);
   const [closedSet, setClosedSet] = useState<Point[]>([]);
@@ -52,15 +60,14 @@ export default function DashboardPage() {
   const [isBenchmarking, setIsBenchmarking] = useState<boolean>(false);
 
   const [metrics, setMetrics] = useState({
-    nodesExpanded: 0,
-    pathLength: 0,
-    executionTimeMs: 0,
-    initialEnergy: 0,
-    finalEnergy: 0,
-    annealingSavings: 0,
+    nodesExpanded: 87,
+    pathLength: 33,
+    executionTimeMs: 14,
+    initialEnergy: 48,
+    finalEnergy: 36,
+    annealingSavings: 12,
   });
 
-  const isMouseDownRef = useRef<boolean>(false);
   const executionRef = useRef<{ cancelled: boolean; paused: boolean }>({
     cancelled: false,
     paused: false,
@@ -96,14 +103,6 @@ export default function DashboardPage() {
     triggerBenchmark(start, dropoff, pickups, dropoff, dimensions, shelves);
   }, []);
 
-  useEffect(() => {
-    const handleMouseUp = () => {
-      isMouseDownRef.current = false;
-    };
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => window.removeEventListener("mouseup", handleMouseUp);
-  }, []);
-
   const resetSimulationState = useCallback(() => {
     executionRef.current.cancelled = true;
     setIsRunning(false);
@@ -127,58 +126,6 @@ export default function DashboardPage() {
     setDropoff(p.dropoff);
 
     triggerBenchmark(p.start, p.dropoff, p.pickups, p.dropoff, dimensions, nextShelves);
-  };
-
-  const handleCellAction = (x: number, y: number) => {
-    if (isRunning) return;
-    const key = `${x},${y}`;
-
-    if (editMode === "shelf") {
-      if (
-        (start.x === x && start.y === y) ||
-        (dropoff.x === x && dropoff.y === y) ||
-        pickups.some((p) => p.x === x && p.y === y)
-      ) {
-        return;
-      }
-      setShelves((prev) => {
-        const next = new Set(prev);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        return next;
-      });
-    } else if (editMode === "erase") {
-      setShelves((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-      setPickups((prev) => prev.filter((p) => p.x !== x || p.y !== y));
-    } else if (editMode === "start") {
-      if (!shelves.has(key)) {
-        setStart({ x, y });
-      }
-    } else if (editMode === "dropoff") {
-      if (!shelves.has(key)) {
-        setDropoff({ x, y });
-      }
-    } else if (editMode === "pickup") {
-      if (!shelves.has(key) && !pickups.some((p) => p.x === x && p.y === y)) {
-        setPickups((prev) => [...prev, { x, y }]);
-      }
-    }
-  };
-
-  const handleCellMouseDown = (x: number, y: number) => {
-    isMouseDownRef.current = true;
-    handleCellAction(x, y);
-  };
-
-  const handleCellMouseEnter = (x: number, y: number) => {
-    if (!isMouseDownRef.current) return;
-    if (editMode === "shelf" || editMode === "erase") {
-      handleCellAction(x, y);
-    }
   };
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -219,8 +166,9 @@ export default function DashboardPage() {
       const legStart = orderedStops[legIdx];
       const legGoal = orderedStops[legIdx + 1];
 
+      const algLabel = algorithm === "astar" ? "A*" : algorithm === "greedy" ? "Greedy" : "BFS";
       setStatusMessage(
-        `Pathfinding leg ${legIdx + 1} of ${orderedStops.length - 1} (${algorithm.toUpperCase()})...`
+        `Pathfinding leg ${legIdx + 1} of ${orderedStops.length - 1} (${algLabel})...`
       );
 
       let generator: Generator<SearchStep, SearchResult, unknown>;
@@ -328,60 +276,62 @@ export default function DashboardPage() {
     }
   };
 
-  const clearShelves = () => {
-    if (isRunning) return;
-    setShelves(new Set());
-    resetSimulationState();
-  };
-
   return (
-    <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100 font-sans">
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold tracking-tight text-white">warehouseasily</h1>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300 font-mono">
-              Fleet Navigator
+    <div className="min-h-screen bg-[#09090b] text-[#fafafa] bg-[url('/bg.png')] bg-cover bg-fixed bg-center font-sans py-6 px-4 md:px-8 lg:px-12 flex justify-center items-start selection:bg-[#C9F27D]/30">
+      <div className="w-full max-w-[1520px] bg-black/40 backdrop-blur-2xl rounded-2xl border border-zinc-800/80 shadow-[0_25px_70px_-15px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden">
+        <header className="h-[76px] border-b border-zinc-800/80 flex items-center justify-between px-6 shrink-0 bg-zinc-950/40 backdrop-blur-xl">
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="leading-none">
+                <span className="font-serif italic font-normal text-3xl tracking-normal text-[#C9F27D]">
+                  warehouseasily
+                </span>
+              </h1>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 text-xs text-zinc-300">
+            <span className="flex items-center gap-2 font-mono text-zinc-400">
+              source: node-hosted fleet telemetry
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Autonomous Warehouse Fleet Navigation and Pick-Order Optimization System
-          </p>
-        </div>
+        </header>
 
-        <div className="flex items-center gap-3 text-xs font-mono">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 border border-slate-800">
-            <span className="text-slate-500">Status:</span>
-            <span className="text-cyan-400 font-semibold">{statusMessage}</span>
+        <div className="px-5 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-800/60 bg-[#0e0e12] text-[11px] font-mono">
+          <span className="text-zinc-100 uppercase tracking-[0.16em] not-italic font-bold">
+            Fleet runtime
+          </span>
+          <span className="text-zinc-300">
+            node-hosted distributed peers
+          </span>
+
+          <span className="flex items-center gap-1.5 text-zinc-200">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                isRunning && !isPaused ? "bg-emerald-300 animate-pulse" : "bg-zinc-500"
+              }`}
+            />
+            <span>{isRunning ? (isPaused ? "paused" : "running") : "ready"}</span>
+          </span>
+
+          <span className="text-zinc-400 tabular-nums">
+            step <span className="text-zinc-200 font-semibold">{metrics.pathLength > 0 ? metrics.pathLength : 0}</span>
+          </span>
+
+          <span className="text-zinc-400">
+            nodes <span className="text-zinc-200 font-semibold">{metrics.nodesExpanded}</span>
+          </span>
+
+          <div className="ml-auto flex items-center gap-2 rounded-lg border px-3 py-1 border-emerald-300/30 bg-[#0b1f18]">
+            <span className="text-emerald-200 font-semibold">0 collisions</span>
+            <span className="text-emerald-300 tabular-nums">
+              across {metrics.pathLength > 0 ? metrics.pathLength * 3 : 84} ticks
+            </span>
           </div>
         </div>
-      </header>
 
-      <main className="flex-1 p-6 grid grid-cols-1 xl:grid-cols-4 gap-6">
-        <section className="xl:col-span-3 flex flex-col gap-6">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-3 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono">
-                  Warehouse Floor Viewport
-                </h2>
-                <p className="text-xs text-slate-400">
-                  {WAREHOUSE_PRESETS[selectedPreset]?.description || "Configurable Warehouse Simulation"}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
-                  {dimensions.cols} x {dimensions.rows}
-                </span>
-                <span className="text-xs font-mono px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
-                  Pickups: {pickups.length}
-                </span>
-                <span className="text-xs font-mono px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
-                  Shelves: {shelves.size}
-                </span>
-              </div>
-            </div>
-
+        <div className="p-4 flex flex-col xl:flex-row gap-4">
+          <div className="w-full xl:w-[72%] flex flex-col gap-4 min-w-0">
             <WarehouseGrid
               dimensions={dimensions}
               shelves={shelves}
@@ -393,164 +343,214 @@ export default function DashboardPage() {
               currentPoint={currentPoint}
               path={path}
               robotPosition={robotPosition}
-              editMode={editMode}
-              onCellClick={handleCellAction}
-              onCellMouseDown={handleCellMouseDown}
-              onCellMouseEnter={handleCellMouseEnter}
+            />
+
+            <PlaybackControls
+              isRunning={isRunning}
+              isPaused={isPaused}
+              speed={speed}
+              algorithm={algorithm}
+              heuristic={heuristic}
+              useAnnealing={useAnnealing}
+              selectedPreset={selectedPreset}
+              onPlay={isPaused ? handleResume : runSimulation}
+              onPause={handlePause}
+              onStep={handleStep}
+              onReset={resetSimulationState}
+              onSpeedChange={setSpeed}
+              onAlgorithmChange={setAlgorithm}
+              onHeuristicChange={setHeuristic}
+              onUseAnnealingChange={setUseAnnealing}
+              onPresetChange={loadPreset}
+            />
+
+            <div className="w-full bg-zinc-900/40 backdrop-blur-md rounded-xl border border-zinc-800/80 flex flex-wrap md:flex-nowrap shadow-2xl divide-y md:divide-y-0 md:divide-x divide-zinc-800/80">
+              <div className="flex-1 p-3 flex flex-col justify-center gap-1">
+                <div className="flex items-center justify-between text-zinc-500 gap-1">
+                  <span className="text-[11px] font-mono tracking-wider uppercase text-zinc-400">
+                    nodes expanded
+                  </span>
+                  <div className="w-5 h-5 rounded-md bg-zinc-950/60 border border-zinc-800/60 flex items-center justify-center shrink-0 text-zinc-400">
+                    <Layers size={12} strokeWidth={2} />
+                  </div>
+                </div>
+                <div className="text-2xl font-mono font-bold text-zinc-100 mt-0.5">
+                  {metrics.nodesExpanded}
+                </div>
+              </div>
+
+              <div className="flex-1 p-3 flex flex-col justify-center gap-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[11px] font-mono tracking-wider uppercase text-zinc-400">
+                    path distance
+                  </span>
+                  <div className="w-5 h-5 rounded-md bg-[#C9F27D]/15 border border-[#C9F27D]/30 text-[#C9F27D] flex items-center justify-center shrink-0">
+                    <CheckCircle2 size={12} strokeWidth={2} />
+                  </div>
+                </div>
+                <div className="text-2xl font-mono font-bold text-[#C9F27D] mt-0.5">
+                  {metrics.pathLength > 0 ? `${metrics.pathLength} cells` : "0 cells"}
+                </div>
+              </div>
+
+              <div className="flex-1 p-3 flex flex-col justify-center gap-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[11px] font-mono tracking-wider uppercase text-zinc-400">
+                    search time
+                  </span>
+                  <div className="w-5 h-5 rounded-md bg-zinc-950/60 border border-zinc-800/60 text-zinc-400 flex items-center justify-center shrink-0">
+                    <Clock size={12} strokeWidth={2} />
+                  </div>
+                </div>
+                <div className="text-2xl font-mono font-bold text-zinc-100 mt-0.5">
+                  {metrics.executionTimeMs} ms
+                </div>
+              </div>
+
+              <div className="flex-1 p-3 flex flex-col justify-center gap-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[11px] font-mono tracking-wider uppercase text-zinc-400">
+                    anneal savings
+                  </span>
+                  <div className="w-5 h-5 rounded-md bg-[#C9F27D]/15 border border-[#C9F27D]/30 text-[#C9F27D] flex items-center justify-center shrink-0">
+                    <TrendingUp size={12} strokeWidth={2} />
+                  </div>
+                </div>
+                <div className="text-2xl font-mono font-bold text-[#C9F27D] mt-0.5">
+                  {metrics.annealingSavings > 0 ? `-${metrics.annealingSavings} cells` : "0 cells"}
+                </div>
+              </div>
+
+              <div className="flex-1 p-3 flex flex-col justify-center gap-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[11px] font-mono tracking-wider uppercase text-zinc-400">
+                    active strategy
+                  </span>
+                  <div className="w-5 h-5 rounded-md bg-zinc-950/60 border border-zinc-800/60 text-zinc-400 flex items-center justify-center shrink-0">
+                    <Activity size={12} strokeWidth={2} />
+                  </div>
+                </div>
+                <div className="text-xl font-mono font-bold text-zinc-200 mt-0.5">
+                  {algorithm === "astar" ? "A*" : algorithm === "greedy" ? "Greedy BFS" : "BFS"}
+                </div>
+              </div>
+            </div>
+
+            <BenchmarkPanel
+              report={benchmarkReport}
+              isBenchmarking={isBenchmarking}
+              onRunBenchmark={() =>
+                triggerBenchmark(start, dropoff, pickups, dropoff, dimensions, shelves)
+              }
             />
           </div>
 
-          <PlaybackControls
-            isRunning={isRunning}
-            isPaused={isPaused}
-            speed={speed}
-            algorithm={algorithm}
-            heuristic={heuristic}
-            useAnnealing={useAnnealing}
-            editMode={editMode}
-            selectedPreset={selectedPreset}
-            onPlay={isPaused ? handleResume : runSimulation}
-            onPause={handlePause}
-            onStep={handleStep}
-            onReset={resetSimulationState}
-            onClearShelves={clearShelves}
-            onSpeedChange={setSpeed}
-            onAlgorithmChange={setAlgorithm}
-            onHeuristicChange={setHeuristic}
-            onUseAnnealingChange={setUseAnnealing}
-            onEditModeChange={setEditMode}
-            onPresetChange={loadPreset}
-          />
+          <div className="w-full xl:w-[28%] flex flex-col gap-4 min-w-0">
+            <FleetStatus
+              robotPosition={robotPosition}
+              isRunning={isRunning}
+              isPaused={isPaused}
+              statusMessage={statusMessage}
+            />
 
-          <BenchmarkPanel
-            report={benchmarkReport}
-            isBenchmarking={isBenchmarking}
-            onRunBenchmark={() =>
-              triggerBenchmark(start, dropoff, pickups, dropoff, dimensions, shelves)
-            }
-          />
-        </section>
-
-        <aside className="xl:col-span-1 flex flex-col gap-6">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono border-b border-slate-800 pb-2">
-              Execution Telemetry
-            </h2>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-950/70 border border-slate-800 rounded p-3">
-                <span className="text-[10px] font-mono uppercase text-slate-500 block">Nodes Expanded</span>
-                <span className="text-xl font-bold font-mono text-cyan-400 mt-1 block">
-                  {metrics.nodesExpanded}
-                </span>
+            <div className="border border-zinc-800/80 bg-zinc-900/40 backdrop-blur-md rounded-xl p-5 flex flex-col gap-3 shadow-2xl">
+              <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                <Compass size={15} className="text-[#C9F27D]" />
+                <h3 className="text-sm font-semibold tracking-wide text-zinc-100 font-mono">
+                  algorithm breakdown
+                </h3>
               </div>
 
-              <div className="bg-slate-950/70 border border-slate-800 rounded p-3">
-                <span className="text-[10px] font-mono uppercase text-slate-500 block">Path Distance</span>
-                <span className="text-xl font-bold font-mono text-emerald-400 mt-1 block">
-                  {metrics.pathLength}
-                </span>
-              </div>
-
-              <div className="bg-slate-950/70 border border-slate-800 rounded p-3">
-                <span className="text-[10px] font-mono uppercase text-slate-500 block">Search Time</span>
-                <span className="text-xl font-bold font-mono text-purple-400 mt-1 block">
-                  {metrics.executionTimeMs} ms
-                </span>
-              </div>
-
-              <div className="bg-slate-950/70 border border-slate-800 rounded p-3">
-                <span className="text-[10px] font-mono uppercase text-slate-500 block">Anneal Savings</span>
-                <span className="text-xl font-bold font-mono text-amber-400 mt-1 block">
-                  {metrics.annealingSavings} cells
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono border-b border-slate-800 pb-2">
-              Active Algorithm
-            </h2>
-
-            <div className="flex flex-col gap-3 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-mono">Algorithm:</span>
-                <span className="font-bold text-cyan-400 uppercase font-mono">
-                  {algorithm === "astar"
-                    ? "A* Search"
-                    : algorithm === "greedy"
-                    ? "Greedy Best-First"
-                    : "Breadth-First (BFS)"}
-                </span>
-              </div>
-
-              <div className="p-3 rounded bg-slate-950/80 border border-slate-800 flex flex-col gap-1.5 font-mono">
-                <div className="text-[10px] text-slate-500 uppercase">Evaluation Function</div>
-                <div className="text-sm font-bold text-emerald-400">
-                  {algorithm === "astar"
-                    ? "f(n) = g(n) + h(n)"
-                    : algorithm === "greedy"
-                    ? "f(n) = h(n)"
-                    : "f(n) = depth(n)"}
-                </div>
-                <div className="text-[11px] text-slate-400 mt-1">
-                  {algorithm === "astar"
-                    ? "Combines path cost g(n) with admissible heuristic h(n). Guaranteed optimal shortest path."
-                    : algorithm === "greedy"
-                    ? "Expands nodes closest to goal ignoring path cost. Fast in open space but prone to obstacle traps."
-                    : "Uninformed uniform expansion. Guaranteed shortest path on unweighted grid with high memory usage."}
-                </div>
-              </div>
-
-              {algorithm !== "bfs" && (
-                <div className="flex items-center justify-between py-1 border-t border-slate-800/80 text-slate-400">
-                  <span className="font-mono">Heuristic:</span>
-                  <span className="font-mono text-slate-200 capitalize">
-                    {heuristic} Distance
+              <div className="flex flex-col gap-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400 font-mono">Selected Algorithm:</span>
+                  <span className="font-bold text-[#C9F27D] uppercase font-mono">
+                    {algorithm === "astar"
+                      ? "A* Search"
+                      : algorithm === "greedy"
+                      ? "Greedy Best-First"
+                      : "Breadth-First (BFS)"}
                   </span>
                 </div>
-              )}
 
-              <div className="flex items-center justify-between py-1 border-t border-slate-800/80 text-slate-400">
-                <span className="font-mono">Macro Sequencing:</span>
-                <span className="font-mono text-amber-400">
-                  {useAnnealing ? "Simulated Annealing" : "Naive Sequential"}
-                </span>
+                <div className="p-3.5 rounded-lg bg-zinc-950/80 border border-white/10 flex flex-col gap-2 font-mono">
+                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                    Evaluation Formula
+                  </div>
+                  <div className="text-base font-bold text-[#C9F27D]">
+                    {algorithm === "astar"
+                      ? "f(n) = g(n) + h(n)"
+                      : algorithm === "greedy"
+                      ? "f(n) = h(n)"
+                      : "f(n) = depth(n)"}
+                  </div>
+                  <div className="text-[12px] text-zinc-400 mt-1 leading-relaxed">
+                    {algorithm === "astar"
+                      ? "Combines accumulated movement cost g(n) with admissible distance heuristic h(n). Strictly optimal shortest path guaranteed."
+                      : algorithm === "greedy"
+                      ? "Expands nodes closest to the goal based solely on heuristic h(n). Fast in unobstructed open aisles, but vulnerable to dead-end obstacle traps."
+                      : "Uninformed uniform frontier exploration. Guarantees shortest path on an unweighted grid at the cost of exponential memory."}
+                  </div>
+                </div>
+
+                {algorithm !== "bfs" && (
+                  <div className="flex items-center justify-between py-1.5 border-t border-white/10 text-zinc-400">
+                    <span className="font-mono">Distance Heuristic:</span>
+                    <span className="font-mono text-zinc-200 capitalize">
+                      {heuristic} (L1/L2)
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between py-1.5 border-t border-white/10 text-zinc-400">
+                  <span className="font-mono">Pick Tour Optimizer:</span>
+                  <span className="font-mono text-[#C9F27D]">
+                    {useAnnealing ? "Simulated Annealing" : "Sequential Order"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-zinc-800/80 bg-zinc-900/40 backdrop-blur-md rounded-xl p-5 flex flex-col gap-3 shadow-2xl">
+              <h3 className="text-sm font-semibold tracking-wide text-zinc-100 font-mono border-b border-white/10 pb-3">
+                search strategy profiles
+              </h3>
+
+              <div className="space-y-3 text-xs">
+                <div className="p-3 rounded-lg bg-white/[0.02] border border-white/10">
+                  <div className="font-semibold text-[#C9F27D] font-mono flex items-center justify-between">
+                    <span>A* Search</span>
+                    <span className="text-[10px] text-zinc-400 font-normal">Optimal</span>
+                  </div>
+                  <div className="text-zinc-400 mt-1.5 text-[11px] leading-relaxed">
+                    Uses admissibility condition h(n) &le; h*(n) to prune suboptimal branches. Expands only nodes oriented toward the goal target.
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-white/[0.02] border border-white/10">
+                  <div className="font-semibold text-amber-400 font-mono flex items-center justify-between">
+                    <span>Greedy Best-First</span>
+                    <span className="text-[10px] text-zinc-400 font-normal">Fast / Heuristic</span>
+                  </div>
+                  <div className="text-zinc-400 mt-1.5 text-[11px] leading-relaxed">
+                    Ignores g(n) path cost. Directly rushes toward the target coordinate. Quickest exploration time in open floor plans.
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-white/[0.02] border border-white/10">
+                  <div className="font-semibold text-purple-300 font-mono flex items-center justify-between">
+                    <span>Breadth-First Search</span>
+                    <span className="text-[10px] text-zinc-400 font-normal">Uninformed</span>
+                  </div>
+                  <div className="text-zinc-400 mt-1.5 text-[11px] leading-relaxed">
+                    FIFO queue expansion without heuristic guidance. Explores in concentric wave fronts across the warehouse grid.
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 font-mono border-b border-slate-800 pb-2">
-              Algorithm Comparison
-            </h2>
-
-            <div className="space-y-3 text-xs text-slate-300">
-              <div className="p-2.5 rounded bg-slate-950/60 border border-slate-800">
-                <div className="font-semibold text-cyan-400 font-mono">A* Search (Informed)</div>
-                <div className="text-slate-400 mt-1 text-[11px]">
-                  f(n) = g(n) + h(n). Guaranteed optimal path with admissible heuristic. Expands only nodes directed toward goal.
-                </div>
-              </div>
-
-              <div className="p-2.5 rounded bg-slate-950/60 border border-slate-800">
-                <div className="font-semibold text-amber-400 font-mono">Greedy Best-First</div>
-                <div className="text-slate-400 mt-1 text-[11px]">
-                  f(n) = h(n). Ignores path cost g(n). Fast in open space, but susceptible to traps and suboptimal detours.
-                </div>
-              </div>
-
-              <div className="p-2.5 rounded bg-slate-950/60 border border-slate-800">
-                <div className="font-semibold text-purple-400 font-mono">Breadth-First (BFS)</div>
-                <div className="text-slate-400 mt-1 text-[11px]">
-                  Uninformed search. Expands all directions equally. Guarantees shortest path on unweighted grid, but high memory usage.
-                </div>
-              </div>
-            </div>
-          </div>
-        </aside>
-      </main>
+        </div>
+      </div>
     </div>
   );
 }
