@@ -10,15 +10,23 @@ const config: Config = {
   darkMode: "class",
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-geist-sans)", "system-ui", "-apple-system", "sans-serif"],
+        mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
+        serif: ["var(--font-instrument-serif)", "Georgia", "serif"],
+      },
       colors: {
-        warehouse: {
-          950: "#070a12",
-          900: "#0b0f19",
-          850: "#101626",
-          800: "#161f36",
-          700: "#1f2c4d",
-          600: "#2d3e6b",
-          500: "#3d538c",
+        accent: {
+          DEFAULT: "#C9F27D",
+          hover: "#bbf062",
+          dim: "rgba(201, 242, 125, 0.1)",
+          border: "rgba(201, 242, 125, 0.4)",
+        },
+        brand: {
+          bg: "#09090b",
+          card: "rgba(18, 22, 31, 0.4)",
+          panel: "rgba(24, 30, 41, 0.6)",
+          lime: "#C9F27D",
         },
       },
     },
